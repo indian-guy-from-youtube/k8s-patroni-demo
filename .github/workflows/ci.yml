@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Поиск секретов (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Сканирование Terraform и Kubernetes конфигов (Trivy)
+        run: |
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest config /src \
+            --severity HIGH,CRITICAL --exit-code 0
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [terraform, security]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка образа
+        run: docker build -f app/dockerfile -t notes:ci app
+      - name: Сканирование образа на уязвимости (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+            --severity CRITICAL --ignore-unfixed --exit-code 1 notes:ci
+      - name: Публикация в GHCR (только main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          IMG="ghcr.io/${GITHUB_REPOSITORY,,}/notes"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag notes:ci "$IMG:${{ github.sha }}"
+          docker tag notes:ci "$IMG:latest"
+          docker push "$IMG:${{ github.sha }}"
+          docker push "$IMG:latest"

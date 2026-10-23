@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Заметки</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+        h1 { margin-bottom: 8px; }
+        .status { display: flex; gap: 16px; font-size: 14px; margin-bottom: 20px; }
+        .badge { padding: 4px 10px; border-radius: 12px; color: #fff; }
+        .ok { background: #2e9e4f; }
+        .bad { background: #d33; }
+        .row { display: flex; gap: 8px; margin-bottom: 16px; }
+        input { flex: 1; padding: 8px; font-size: 16px; }
+        button { padding: 8px 14px; font-size: 16px; cursor: pointer; }
+        li { display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; border-bottom: 1px solid #ddd; }
+        ul { list-style: none; padding: 0; }
+        #error { color: #d33; min-height: 20px; }
+    </style>
+</head>
+<body>
+<h1>Заметки</h1>
+<div class="status">
+    <span id="app" class="badge bad">приложение: ?</span>
+    <span id="db" class="badge bad">база: ?</span>
+</div>
+
+<div class="row">
+    <input id="text" placeholder="Новая заметка">
+    <button id="add">Добавить</button>
+</div>
+<div id="error"></div>
+<ul id="list"></ul>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+
+    function setBadge(el, ok, text) {
+        el.textContent = text;
+        el.className = 'badge ' + (ok ? 'ok' : 'bad');
+    }
+
+    async function refresh() {
+        try {
+            const w = await fetch('/whoami');
+            const data = await w.json();
+            setBadge($('app'), true, 'под: ' + data.pod);
+        } catch (e) {
+            setBadge($('app'), false, 'приложение недоступно');
+        }
+
+        try {
+            const r = await fetch('/notes');
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const notes = await r.json();
+            setBadge($('db'), true, 'база: доступна');
+            render(notes);
+        } catch (e) {
+            setBadge($('db'), false, 'база: недоступна');
+        }
+    }
+
+    function render(notes) {
+        const list = $('list');
+        list.innerHTML = '';
+        for (const n of notes) {
+            const li = document.createElement('li');
+            const span = document.createElement('span');
+            span.textContent = n.text;
+            const del = document.createElement('button');
+            del.textContent = 'Удалить';
+            del.onclick = () => remove(n.id);
+            li.append(span, del);
+            list.append(li);
+        }
+    }
+
+    async function add() {
+        const text = $('text').value.trim();
+        if (!text) return;
+        try {
+            const r = await fetch('/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            $('text').value = '';
+            $('error').textContent = '';
+        } catch (e) {
+            $('error').textContent = 'Не удалось сохранить: ' + e.message;
+        }
+        refresh();
+    }
+
+    async function remove(id) {
+        try {
+            await fetch('/notes/' + id, { method: 'DELETE' });
+        } catch (e) {
+            $('error').textContent = 'Не удалось удалить';
+        }
+        refresh();
+    }
+
+    $('add').onclick = add;
+    $('text').addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+
+    refresh();
+    setInterval(refresh, 2000);
+</script>
+</body>
+</html>
