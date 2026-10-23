@@ -43,7 +43,7 @@ jobs:
         run: docker build -f app/dockerfile -t notes:ci app
       - name: Сканирование образа на уязвимости (Trivy)
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/.trivyignore:/.trivyignore" aquasec/trivy:latest image --ignorefile /.trivyignore \
             --severity CRITICAL --ignore-unfixed --exit-code 1 notes:ci
       - name: Публикация в GHCR (только main)
         if: github.ref == 'refs/heads/main'
